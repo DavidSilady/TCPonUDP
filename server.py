@@ -3,7 +3,7 @@ import sys
 import time
 import threading
 from threading import Thread
-from packet import Packet
+from packet import *
 
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5006
@@ -18,8 +18,9 @@ TARGET_PORT = 5006
 
 def send_text():
 	message = input("Message: ")
-	byte_message = str.encode(message)
-	sock.sendto(byte_message, (TARGET_IP, TARGET_PORT))
+	packet = Message(1, 't', message)
+	b_packet = packet.to_bytes()
+	sock.sendto(b_packet, (TARGET_IP, TARGET_PORT))
 
 
 def send_file():
@@ -71,8 +72,10 @@ def command_listener():
 def listen():
 	while True:
 		data, addr = sock.recvfrom(1024)  # buffer size is 1024
-		message = data.decode()
-		print("Received message: ", message)
+		packet = Message.from_bytes(data)
+		print("Payload: ", packet.payload)
+		print("Type: ", packet.packet_type)
+		print("Seq_Num: ", packet.sequence_number)
 
 
 listen_thread = Thread(target=listen, daemon=True)
