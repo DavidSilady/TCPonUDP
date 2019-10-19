@@ -62,4 +62,3 @@ class Content(Packet):  # Message and File
         checksum = new_tuple[2]
         payload = data[7:]
         return cls(sequence_number, packet_type.decode(), payload.decode(), checksum)
-

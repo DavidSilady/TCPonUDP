@@ -4,7 +4,12 @@ import time
 import threading
 from multiprocessing import Process
 from threading import Thread
+
+from urllib3.connectionpool import xrange
+
 from packet import *
+
+TOTAL_HEADER_SIZE = 35
 
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
@@ -21,10 +26,20 @@ TARGET_PORT = 5005
 
 def send_text():
 	message = input("Message: ")
-	packet = Content(1, 'm', message)
-	b_packet = packet.to_bytes()
-	sock.sendto(b_packet, (TARGET_IP, TARGET_PORT))
+	if message.__sizeof__() > buffer_size:
+		# https://stackoverflow.com/questions/7286139/using-python-to-break-a-continuous-string-into-components/7286244#7286244
+		chunks = [message[i:i+buffer_size] for i in xrange(0, len(message), buffer_size)]
+		seq_num = 0
+		for chunk in chunks:
+			packet = Content(seq_num, 'm', chunk)
+			seq_num += 1
+			b_packet = packet.to_bytes()
+			sock.sendto(b_packet, (TARGET_IP, TARGET_PORT))
 	print("---Sent---")
+
+
+def send_thread(b_packet):
+	pass
 
 
 def send_file():
@@ -72,7 +87,7 @@ def command_listener():
 			connect()
 		elif command == ":buffer":
 			global buffer_size
-			buffer_size = input("New buffer size: ")
+			buffer_size = int(input("New buffer size: "))
 		else:
 			print("---Unknown Command---")
 
@@ -100,7 +115,7 @@ def handle(data, addr):
 
 	if packet_type == 'm' or packet_type == 'f':  # message or file
 		packet = Content.from_bytes(data)
-		print("Message:", packet.payload)
+		print("Message:", packet.payload, packet.sequence_number)
 		if packet.checksum == 0:
 			send_ack(packet.sequence_number, addr)
 		else:
@@ -117,7 +132,7 @@ def handle(data, addr):
 
 def listen():
 	while True:
-		data, addr = sock.recvfrom(buffer_size)  # buffer size is 1024
+		data, addr = sock.recvfrom(buffer_size + TOTAL_HEADER_SIZE)  # buffer size is 1024
 		if data:
 			handle(data, addr)
 
