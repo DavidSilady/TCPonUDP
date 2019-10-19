@@ -16,9 +16,8 @@ class Packet:
     @classmethod
     def from_bytes(cls, data):
         new_tuple = unpack("!c", data[:1])
-        b_packet_type = new_tuple[0]
-        packet_type = b_packet_type.decode()
-        return cls(packet_type)
+        packet_type = new_tuple[0]
+        return cls(packet_type.decode())
 
 
 class Response(Packet):  # ACK and NAK
@@ -35,7 +34,7 @@ class Response(Packet):  # ACK and NAK
         new_tuple = unpack("!cI", data[:7])
         packet_type = new_tuple[0]
         sequence_number = new_tuple[1]
-        return cls(sequence_number, packet_type)
+        return cls(sequence_number, packet_type.decode())
 
 
 class Content(Packet):  # Message and File
