@@ -3,6 +3,7 @@ from struct import *
 
 
 class Packet:
+
     def __init__(self, packet_type):
         self.packet_type: str = packet_type
 
@@ -20,7 +21,7 @@ class Packet:
         return cls(packet_type)
 
 
-class Response(Packet):
+class Response(Packet):  # ACK and NAK
 
     def __init__(self, sequence_number, packet_type):
         super().__init__(packet_type)
@@ -37,7 +38,7 @@ class Response(Packet):
         return cls(sequence_number, packet_type)
 
 
-class Content(Packet):
+class Content(Packet):  # Message and File
 
     def __init__(self, sequence_number, packet_type, payload, checksum=0):
         super().__init__(packet_type)
