@@ -19,7 +19,7 @@ TARGET_PORT = 5005
 
 def send_text():
 	message = input("Message: ")
-	packet = Message(1, 't', message)
+	packet = Content(1, 'm', message)
 	b_packet = packet.to_bytes()
 	sock.sendto(b_packet, (TARGET_IP, TARGET_PORT))
 
@@ -71,23 +71,38 @@ def command_listener():
 			print(command)
 
 
-def handle(data):
+def send_ack(seq_num, addr):
+	response = Response(seq_num, 'a').to_bytes()
+	sock.sendto(response, addr)
+
+
+def send_nak(seq_num, addr):
+	response = Response(seq_num, 'n').to_bytes()
+	sock.sendto(response, addr)
+
+
+def handle(data, addr):
 	packet = Packet.from_bytes(data)
 	packet_type = packet.packet_type
-	if packet_type == 'f':
-		packet = Message.from_bytes(data)
-	elif packet_type == 'a':
+
+	print(packet.packet_type)
+
+	if packet_type == 'm' or packet_type == 'f':
+		packet = Content.from_bytes(data)
+		print(packet.payload)
+		if packet.checksum == 0:
+			send_ack(packet.sequence_number, addr)
+		else:
+			send_nak(packet.sequence_number, addr)
+	elif packet_type == 'a' or packet_type == 'n':
 		packet = Response.from_bytes(data)
 
 
-def listen(handle_process=None):
-	i = 0
+def listen():
 	while True:
 		data, addr = sock.recvfrom(1024)  # buffer size is 1024
 		if data:
-			handle_process[i] = Process(target=handle, args=data, daemon=True)
-			handle_process[i].start()
-			i += 1
+			handle(data, addr)
 
 
 listen_thread = Thread(target=listen, daemon=True)

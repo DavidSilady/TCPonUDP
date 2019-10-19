@@ -14,14 +14,9 @@ class Packet:
 
     @classmethod
     def from_bytes(cls, data):
-        if calcsize(data) == 1:
-            new_tuple = unpack("!c", data)
-            b_packet_type = new_tuple[0]
-            packet_type = b_packet_type.decode()
-        else:
-            new_tuple = unpack("!cIH", data)
-            b_packet_type = new_tuple[0]
-            packet_type = b_packet_type.decode()
+        new_tuple = unpack("!c", data[:1])
+        b_packet_type = new_tuple[0]
+        packet_type = b_packet_type.decode()
         return cls(packet_type)
 
 
@@ -42,7 +37,7 @@ class Response(Packet):
         return cls(sequence_number, packet_type)
 
 
-class Message(Packet):
+class Content(Packet):
 
     def __init__(self, sequence_number, packet_type, payload, checksum=0):
         super().__init__(packet_type)
