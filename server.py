@@ -87,21 +87,32 @@ def send_nak(seq_num, addr):
 	sock.sendto(response, addr)
 
 
+def send_alive(addr):
+	packet = Packet('l').to_bytes()  # live
+	sock.sendto(packet, addr)
+
+
 def handle(data, addr):
 	packet = Packet.from_bytes(data)
 	packet_type = packet.packet_type
 
 	print("Type:", packet.packet_type)
 
-	if packet_type == 'm' or packet_type == 'f':
+	if packet_type == 'm' or packet_type == 'f':  # message or file
 		packet = Content.from_bytes(data)
-		print(packet.payload)
+		print("Message:", packet.payload)
 		if packet.checksum == 0:
 			send_ack(packet.sequence_number, addr)
 		else:
 			send_nak(packet.sequence_number, addr)
-	elif packet_type == 'a' or packet_type == 'n':
+	elif packet_type == 'a' or packet_type == 'n':  # ACK or NAK
 		packet = Response.from_bytes(data)
+	elif packet_type == 'k':  # keep alive
+		send_alive(addr)
+	elif packet_type == 'l':
+		print("Partner alive.")
+	else:
+		print("Unknown type")
 
 
 def listen():
