@@ -27,11 +27,11 @@ class Response(Packet):
         self.sequence_number: int = sequence_number
 
     def to_bytes(self):
-        return pack("!cIH", self.packet_type.encode('utf-8'), self.sequence_number)
+        return pack("!cI", self.packet_type.encode('utf-8'), self.sequence_number)
 
     @classmethod
     def from_bytes(cls, data):
-        new_tuple = unpack("!cIH", data[:7])
+        new_tuple = unpack("!cI", data[:7])
         packet_type = new_tuple[0]
         sequence_number = new_tuple[1]
         return cls(sequence_number, packet_type)

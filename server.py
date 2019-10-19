@@ -9,6 +9,8 @@ from packet import *
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
 
+buffer_size = 1024
+
 sock = socket.socket(socket.AF_INET,  # Internet
 	                    socket.SOCK_DGRAM)  # UDP
 sock.bind((UDP_IP, UDP_PORT))
@@ -22,10 +24,11 @@ def send_text():
 	packet = Content(1, 'm', message)
 	b_packet = packet.to_bytes()
 	sock.sendto(b_packet, (TARGET_IP, TARGET_PORT))
+	print("---Sent---")
 
 
 def send_file():
-	num_bytes = 1024
+	num_bytes = buffer_size
 	path = input("Path to file: ")
 	with open(path, "rb") as file:
 		chunk = file.read(num_bytes)
@@ -67,8 +70,11 @@ def command_listener():
 			send_data()
 		elif command == ":connect":
 			connect()
+		elif command == ":buffer":
+			global buffer_size
+			buffer_size = input("New buffer size: ")
 		else:
-			print(command)
+			print("---Unknown Command---")
 
 
 def send_ack(seq_num, addr):
@@ -85,7 +91,7 @@ def handle(data, addr):
 	packet = Packet.from_bytes(data)
 	packet_type = packet.packet_type
 
-	print(packet.packet_type)
+	print("Type:", packet.packet_type)
 
 	if packet_type == 'm' or packet_type == 'f':
 		packet = Content.from_bytes(data)
@@ -100,7 +106,7 @@ def handle(data, addr):
 
 def listen():
 	while True:
-		data, addr = sock.recvfrom(1024)  # buffer size is 1024
+		data, addr = sock.recvfrom(buffer_size)  # buffer size is 1024
 		if data:
 			handle(data, addr)
 
