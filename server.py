@@ -6,14 +6,14 @@ from threading import Thread
 from packet import *
 
 UDP_IP = "127.0.0.1"
-UDP_PORT = 5006
+UDP_PORT = 5005
 
 sock = socket.socket(socket.AF_INET,  # Internet
 	                    socket.SOCK_DGRAM)  # UDP
 sock.bind((UDP_IP, UDP_PORT))
 
 TARGET_IP = "127.0.0.1"
-TARGET_PORT = 5006
+TARGET_PORT = 5005
 
 
 def send_text():
@@ -40,7 +40,8 @@ def send_data():
 	if command == ":text":
 		send_text()
 	elif command == ":file":
-		send_file()
+		print("Nothing happens yet")
+		# send_file()
 	elif command == ":back":
 		print("---User Interface---")
 		return
