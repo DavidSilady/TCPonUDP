@@ -2,6 +2,7 @@ import socket
 import sys
 import time
 import threading
+from multiprocessing import Process
 from threading import Thread
 from packet import *
 
@@ -70,13 +71,23 @@ def command_listener():
 			print(command)
 
 
-def listen():
+def handle(data):
+	packet = Packet.from_bytes(data)
+	packet_type = packet.packet_type
+	if packet_type == 'f':
+		packet = Message.from_bytes(data)
+	elif packet_type == 'a':
+		packet = Response.from_bytes(data)
+
+
+def listen(handle_process=None):
+	i = 0
 	while True:
 		data, addr = sock.recvfrom(1024)  # buffer size is 1024
-		packet = Message.from_bytes(data)
-		print("Payload: ", packet.payload)
-		print("Type: ", packet.packet_type)
-		print("Seq_Num: ", packet.sequence_number)
+		if data:
+			handle_process[i] = Process(target=handle, args=data, daemon=True)
+			handle_process[i].start()
+			i += 1
 
 
 listen_thread = Thread(target=listen, daemon=True)
