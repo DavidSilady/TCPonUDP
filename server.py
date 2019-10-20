@@ -1,10 +1,8 @@
 import socket
 import sys
 import time
-import threading
-from multiprocessing import Process
+from concurrent.futures.thread import ThreadPoolExecutor
 from threading import Thread
-
 from packet import *
 
 TOTAL_HEADER_SIZE = 35
@@ -21,17 +19,18 @@ sock.bind((UDP_IP, UDP_PORT))
 TARGET_IP = "169.254.195.226"
 TARGET_PORT = 35000
 
-RTT = 3
+RTT = 2
 
 thread_stop = []
 BUFFER = []
+SERVER_BUFFER = []
 
 
 def send_first(num_packets):
 	first = Response(num_packets, 'H')  # H - Header
 	sock.sendto(first.to_bytes(), (TARGET_IP, TARGET_PORT))
-
-
+	
+	
 # https://stackoverflow.com/a/30239138
 def multi_line_input():
 	lines = []
@@ -46,7 +45,6 @@ def multi_line_input():
 
 
 def send_text():
-
 	print(TARGET_IP, TARGET_PORT)
 	print("Message:")
 	message = multi_line_input()
@@ -56,6 +54,8 @@ def send_text():
 	packets = [Content(seq_num, 'm', chunk) for seq_num, chunk in enumerate(chunks)]
 	thread_stop.clear()
 	send_first(len(packets))
+	global SERVER_BUFFER
+	SERVER_BUFFER = packets
 	for packet in packets:
 		send_t = Thread(target=send_thread, args=[packet], daemon=True)
 		thread_stop.append(False)
@@ -66,19 +66,33 @@ def send_text():
 def send_thread(packet):
 	b_packet = packet.to_bytes()
 	while not thread_stop[packet.sequence_number]:
+		print("Sending:", packet.sequence_number)
 		sock.sendto(b_packet, (TARGET_IP, TARGET_PORT))
 		time.sleep(RTT)
 	return
 
 
 def send_file():
-	num_bytes = BUFFER_SIZE
+	packets = []
 	path = input("Path to file: ")
+	seq_num = 0
+
 	with open(path, "rb") as file:
-		chunk = file.read(num_bytes)
+		chunk = file.read(BUFFER_SIZE)
 		while chunk != b"":
-			# Do stuff with chunk.
-			chunk = file.read(num_bytes)
+			packet = Content(seq_num, 'f', chunk)
+			seq_num += 1
+			packets.append(packet)
+			chunk = file.read(BUFFER_SIZE)
+
+	send_first(len(packets))
+	global SERVER_BUFFER
+	SERVER_BUFFER = packets
+
+	for packet in packets:
+		thread_stop.append(False)
+	with ThreadPoolExecutor() as executor:
+		var = {executor.submit(send_thread, packet): packet for packet in packets}
 	return
 
 
@@ -88,8 +102,7 @@ def send_data():
 	if command == ":text":
 		send_text()
 	elif command == ":file":
-		print("Nothing happens yet")
-		# send_file()
+		send_file()
 	elif command == ":back":
 		print("---User Interface---")
 		return
@@ -147,28 +160,37 @@ def merge_buffer(complete=""):
 	return complete
 
 
+def handle_content(data, addr):
+	packet = Content.from_bytes(data)
+	if packet.checksum == 0:
+		print("Chunk:", packet.payload)
+		send_ack(packet.sequence_number, addr)
+		BUFFER[packet.sequence_number] = packet.payload
+		if packet.sequence_number == len(BUFFER) - 1:
+			complete = merge_buffer()
+			print(BUFFER)
+			BUFFER.clear()
+			print("Message:", complete)
+	else:
+		send_nak(packet.sequence_number, addr)
+
+
 def handle(data, addr):
 	packet = Packet.from_bytes(data)
 	packet_type = packet.packet_type
 	global BUFFER
 	print("\n/--------------------------------------------------\\")
 	if packet_type == 'm' or packet_type == 'f':  # message or file
-		packet = Content.from_bytes(data)
-		if packet.checksum == 0:
-			print("Chunk:", packet.payload)
-			send_ack(packet.sequence_number, addr)
-			BUFFER[packet.sequence_number] = packet.payload
-			if packet.sequence_number == len(BUFFER) - 1:
-				complete = merge_buffer()
-				print(BUFFER)
-				BUFFER.clear()
-				print("Message:", complete)
-		else:
-			send_nak(packet.sequence_number, addr)
+		handle_content(data, addr)
 	elif packet_type == 'a' or packet_type == 'n':  # ACK or NAK
 		packet = Response.from_bytes(data)
 		print("Type:", packet.packet_type, packet.sequence_number)
-		thread_stop[packet.sequence_number] = True
+		if packet_type == 'a':
+			thread_stop[packet.sequence_number] = True
+		else:
+			repeat_packet = SERVER_BUFFER[packet.sequence_number]
+			send_t = Thread(target=send_thread, args=[repeat_packet], daemon=True)
+			send_t.start()
 	elif packet_type == 'k':  # keep alive
 		send_alive(addr)
 	elif packet_type == 'l':
