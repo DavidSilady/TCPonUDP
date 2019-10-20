@@ -184,7 +184,11 @@ def merge_buffer():
 	return b''.join(BUFFER)
 
 
-def build_file():
+def build_file(complete):
+	f = open(FILE_NAME, 'wb+')
+	f.write(complete)
+	f.close()
+	print("File written.")
 	pass
 
 
@@ -200,7 +204,7 @@ def handle_content(data, addr):
 			complete = merge_buffer()
 			BUFFER.clear()
 			if IS_FILE:
-				build_file()
+				build_file(complete)
 				IS_FILE = False
 			else:
 				complete = complete.decode()
