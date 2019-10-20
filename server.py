@@ -1,3 +1,5 @@
+import ntpath
+import os
 import socket
 import sys
 import time
@@ -117,7 +119,7 @@ def send_file():
 			chunk = file.read(BUFFER_SIZE)
 	global SERVER_BUFFER
 	SERVER_BUFFER = [packet.payload for packet in packets]
-	file_name = "file.png"
+	file_name = ntpath.basename(path)
 	send_first(len(packets), 'H', file_name)
 	queue_packets(packets)
 	return
@@ -185,10 +187,16 @@ def merge_buffer():
 
 
 def build_file(complete):
-	f = open(FILE_NAME, 'wb+')
+	path = os.getcwd()
+	path = path + "/output/"
+	try:
+		os.mkdir(path)
+	except FileExistsError:
+		pass
+	f = open(path + FILE_NAME, 'wb+')
 	f.write(complete)
 	f.close()
-	print("File written.")
+	print("File written in", path)
 	pass
 
 
