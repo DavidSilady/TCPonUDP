@@ -3,7 +3,6 @@ import os
 import socket
 import sys
 import time
-from concurrent.futures.thread import ThreadPoolExecutor
 from threading import Thread, Event
 from packet import *
 
@@ -15,7 +14,7 @@ sock = socket.socket(socket.AF_INET,  # Internet
 UDP_IP = socket.gethostbyname(socket.gethostname())
 UDP_PORT = 35000
 sock.bind((UDP_IP, UDP_PORT))
-BUFFER_SIZE = 100
+BUFFER_SIZE = 1465
 
 TARGET_IP = ""
 TARGET_PORT = 0
@@ -24,7 +23,7 @@ IS_FILE = False
 FILE_NAME = ""
 FAULTY_INDEX = 2
 RTT = 2
-MAX_THREAD_COUNT = 100
+MAX_THREAD_COUNT = 20
 THREAD_STOP = []
 THREAD_COUNT = 1
 TIMEOUT = []
@@ -65,13 +64,14 @@ def send_text():
 
 
 def queue_packets(packets):
+
 	global THREAD_COUNT
 	THREAD_STOP.clear()
 	TIMEOUT.clear()
 	for packet in packets:
 		while THREAD_COUNT > MAX_THREAD_COUNT:
-			print("Max Threads", THREAD_COUNT)
-			time.sleep(0.1)
+			#print("Max Threads", THREAD_COUNT)
+			time.sleep(0.05)
 		send_t = Thread(target=sender_thread, args=[packet], daemon=True)
 		event = Event()
 		TIMEOUT.append(event)
@@ -81,34 +81,31 @@ def queue_packets(packets):
 	print("---Sent---")
 
 
-def sender_thread(packet, seq_num=len(TIMEOUT) - 1):
-	try:
-		seq_num = packet.sequence_number
-	except TypeError:
-		print("Sending Last")
+def sender_thread(packet):
 	b_packet = packet.to_bytes()
 	faulty = True
-	while not THREAD_STOP[seq_num]:
+	while not THREAD_STOP[packet.sequence_number]:
 		# print("Sending:", packet.sequence_number)
-		if seq_num == FAULTY_INDEX and faulty:
+		if packet.sequence_number == FAULTY_INDEX and faulty:
 			fault = packet
 			fault.payload = b'\x00\x00'
 			f_packet = fault.to_bytes()
 			faulty = False
 			sock.sendto(f_packet, (TARGET_IP, TARGET_PORT))
-			print("Faulty packet", seq_num, "sent.")
+			print("Faulty packet", packet.sequence_number, "sent.")
 		else:
 			sock.sendto(b_packet, (TARGET_IP, TARGET_PORT))
-			print("Packet", seq_num, "sent.")
-		TIMEOUT[seq_num].wait(RTT)
+	#		print("Packet", seq_num, "sent.")
+		TIMEOUT[packet.sequence_number].wait(RTT)
 	return
 
 
 def send_file():
+
 	packets = []
 	path = input("Path to file: ")
 	seq_num = 0
-
+	start = time.time()
 	with open(path, "rb") as file:
 		chunk = file.read(BUFFER_SIZE)
 		while chunk != b"":
@@ -121,6 +118,8 @@ def send_file():
 	file_name = ntpath.basename(path)
 	send_first(len(packets), 'H', file_name)
 	queue_packets(packets)
+	end = time.time()
+	print("Time elapsed:", end - start, "s")
 	return
 
 
@@ -165,6 +164,9 @@ def command_listener():
 		elif command == ":clear":
 			global THREAD_STOP
 			THREAD_STOP.clear()
+			BUFFER.clear()
+			SERVER_BUFFER.clear()
+			TIMEOUT.clear()
 		elif command == ":listen":
 			connect_listener = Thread(target=listen_for_connect, daemon=True)
 			connect_listener.start()
@@ -245,7 +247,7 @@ def handle_content(data, addr):
 			if not BUFFER[packet.sequence_number] is None:
 				send_ack(packet.sequence_number, addr)
 				return
-			print("Chunk:", packet.sequence_number)
+		#	print("Chunk:", packet.sequence_number)
 			send_ack(packet.sequence_number, addr)
 			BUFFER[packet.sequence_number] = packet.payload
 			if not BUFFER.__contains__(None):
@@ -262,7 +264,7 @@ def handle_content(data, addr):
 			send_nak(packet.sequence_number, addr)
 	except IndexError:
 		packet = Content.from_bytes(data)
-		print(packet.sequence_number, packet.payload, "Index out.")
+	#	print(packet.sequence_number, packet.payload, "Index out.")
 		send_ack(packet.sequence_number, addr)
 
 
@@ -274,17 +276,17 @@ def handle(data, addr):
 	packet = Packet.from_bytes(data)
 	packet_type = packet.packet_type
 
-	print("\n/--------------------------------------------------\\")
+	#print("\n/--------------------------------------------------\\")
 	if packet_type == 'm' or packet_type == 'f':  # message or file
 		handle_content(data, addr)
 	elif packet_type == 'a' or packet_type == 'n':  # ACK or NAK
 		packet = Response.from_bytes(data)
-		print("Type:", packet.packet_type, packet.sequence_number)
 		if packet_type == 'a':
 			THREAD_STOP[packet.sequence_number] = True
 			TIMEOUT[packet.sequence_number].set()
 			THREAD_COUNT -= 1
 		else:
+			print("Type:", packet.packet_type, packet.sequence_number)
 			TIMEOUT[packet.sequence_number].set()
 			TIMEOUT[packet.sequence_number].clear()
 	elif packet_type == 'k':  # keep alive
@@ -314,7 +316,7 @@ def handle(data, addr):
 		print("New buffer size", BUFFER_SIZE)
 	else:
 		print("Unknown type")
-	print("\\--------------------------------------------------/\n")
+	#print("\\--------------------------------------------------/\n")
 
 
 def listen():
