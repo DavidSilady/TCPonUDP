@@ -31,8 +31,8 @@ BUFFER = []
 SERVER_BUFFER = []
 
 
-def send_first(num_packets):
-	first = Response(num_packets, 'H')  # H - Header
+def send_first(num_packets, packet_type='h', payload=""):
+	first = Content(num_packets, packet_type, payload.encode())  # H - Header
 	sock.sendto(first.to_bytes(), (TARGET_IP, TARGET_PORT))
 
 
@@ -59,6 +59,7 @@ def send_text():
 	packets = [Content(seq_num, 'm', chunk.encode()) for seq_num, chunk in enumerate(chunks)]
 	global SERVER_BUFFER
 	SERVER_BUFFER = chunks
+	send_first(len(packets))
 	queue_packets(packets)
 
 
@@ -66,7 +67,6 @@ def queue_packets(packets):
 	global THREAD_COUNT
 	THREAD_STOP.clear()
 	TIMEOUT.clear()
-	send_first(len(packets))
 	for packet in packets:
 		while THREAD_COUNT > MAX_THREAD_COUNT:
 			print("Max Threads", THREAD_COUNT)
@@ -117,6 +117,8 @@ def send_file():
 			chunk = file.read(BUFFER_SIZE)
 	global SERVER_BUFFER
 	SERVER_BUFFER = [packet.payload for packet in packets]
+	file_name = "file.png"
+	send_first(len(packets), 'H', file_name)
 	queue_packets(packets)
 	return
 
@@ -182,7 +184,12 @@ def merge_buffer():
 	return b''.join(BUFFER)
 
 
+def build_file():
+	pass
+
+
 def handle_content(data, addr):
+	global IS_FILE
 	packet = Content.from_bytes(data)
 	if packet.checksum == 0:
 		print("Chunk:", packet.sequence_number)
@@ -190,8 +197,14 @@ def handle_content(data, addr):
 		BUFFER[packet.sequence_number] = packet.payload
 		if not BUFFER.__contains__(None):
 			print(BUFFER)
-			print(merge_buffer())
+			complete = merge_buffer()
 			BUFFER.clear()
+			if IS_FILE:
+				build_file()
+				IS_FILE = False
+			else:
+				complete = complete.decode()
+				print(complete)
 	else:
 		print("Error: ", packet.payload, "|", SERVER_BUFFER[packet.sequence_number])  # debug
 		send_nak(packet.sequence_number, addr)
@@ -221,19 +234,23 @@ def handle(data, addr):
 		send_alive(addr)
 	elif packet_type == 'l':  # alive
 		print("Partner alive.")
-	elif packet_type == 'H':  # header
-		packet = Response.from_bytes(data)
+	elif packet_type == 'h':  # header
+		packet = Content.from_bytes(data)
 		if packet.checksum == 0:
 			BUFFER.clear()
 			BUFFER = [None] * packet.sequence_number
 			print("Receiving", packet.sequence_number, "packets. . .")
-	elif packet_type == 'h':  # file header
-		packet = Packet.from_bytes(data)
+	elif packet_type == 'H':  # file header
+		packet = Content.from_bytes(data)
 		if packet.checksum == 0:
 			global IS_FILE
 			global FILE_NAME
 			IS_FILE = True
 			FILE_NAME = packet.payload.decode()
+			print(FILE_NAME)
+			BUFFER.clear()
+			BUFFER = [None] * packet.sequence_number
+			print("Receiving", packet.sequence_number, "packets. . .")
 	else:
 		print("Unknown type")
 	print("\\--------------------------------------------------/\n")
