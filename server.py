@@ -9,17 +9,16 @@ from packet import *
 
 TOTAL_HEADER_SIZE = 35
 
-UDP_IP = "169.254.195.226"
-UDP_PORT = 35000
-
-BUFFER_SIZE = 100
-
 sock = socket.socket(socket.AF_INET,  # Internet
 	                    socket.SOCK_DGRAM)  # UDP
-sock.bind((UDP_IP, UDP_PORT))
 
-TARGET_IP = "169.254.195.226"
-TARGET_PORT = 35000
+UDP_IP = socket.gethostbyname(socket.gethostname())
+UDP_PORT = 35000
+sock.bind((UDP_IP, UDP_PORT))
+BUFFER_SIZE = 100
+
+TARGET_IP = ""
+TARGET_PORT = 0
 
 IS_FILE = False
 FILE_NAME = ""
@@ -137,15 +136,8 @@ def send_data():
 		return
 
 
-def connect():
-	global TARGET_IP
-	TARGET_IP = input("IP: ")
-	global TARGET_PORT
-	TARGET_PORT = int(input("Port: "))
-	sock.connect((TARGET_IP, TARGET_PORT))
-
-
 def command_listener():
+	print(UDP_IP, UDP_PORT, "LISTENING")
 	print("---User Interface---")
 	while True:
 		command = input()
@@ -159,12 +151,57 @@ def command_listener():
 			connect()
 		elif command == ":buffer":
 			global BUFFER_SIZE
-			BUFFER_SIZE = int(input("New buffer size: "))
+			print("Current size:", BUFFER_SIZE)
+			new_size = int(input("New buffer (payload) size: "))
+			if 1 < new_size < 1465:
+				BUFFER_SIZE = new_size
+			elif new_size < 1:
+				BUFFER_SIZE = 1
+				print("Size set to minimum (1)")
+			else:
+				BUFFER_SIZE = 1465
+				print("Size set to maximum (1465)")
+			sock.sendto(Response(BUFFER_SIZE, 'b').to_bytes(), (TARGET_IP, TARGET_PORT))
 		elif command == ":clear":
 			global THREAD_STOP
 			THREAD_STOP.clear()
+		elif command == ":listen":
+			connect_listener = Thread(target=listen_for_connect, daemon=True)
+			connect_listener.start()
 		else:
 			print("---Unknown Command---")
+
+
+def connect():
+	global TARGET_IP
+	TARGET_IP = input("IP: ")
+	global TARGET_PORT
+	TARGET_PORT = int(input("Port: "))
+	three_way_handshake()
+
+
+def recv_hello():
+	global RTT
+	start = time.time()
+	packet = Packet('y')
+	sock.sendto(packet.to_bytes(), (TARGET_IP, TARGET_PORT))
+	print("Sent greetings to", TARGET_IP, TARGET_PORT)
+	data, addr = sock.recvfrom(BUFFER_SIZE + TOTAL_HEADER_SIZE)
+	packet = Packet.from_bytes(data)
+	if packet.packet_type == 'Y':
+		sock.sendto(Packet('c').to_bytes(), (TARGET_IP, TARGET_PORT))
+		end = time.time()
+		RTT = (end - start) + 0.2
+		listen_thread = Thread(target=listen, daemon=True)
+		listen_thread.start()
+		print("Connection successful.")
+	else:
+		print("Connection unsuccessful.")
+
+
+def three_way_handshake():
+	thread = Thread(target=recv_hello, daemon=True)
+	thread.start()
 
 
 def send_ack(seq_num, addr):
@@ -201,28 +238,36 @@ def build_file(complete):
 
 
 def handle_content(data, addr):
-	global IS_FILE
-	packet = Content.from_bytes(data)
-	if packet.checksum == 0:
-		print("Chunk:", packet.sequence_number)
+	try:
+		global IS_FILE
+		packet = Content.from_bytes(data)
+		if packet.checksum == 0:
+			if not BUFFER[packet.sequence_number] is None:
+				send_ack(packet.sequence_number, addr)
+				return
+			print("Chunk:", packet.sequence_number)
+			send_ack(packet.sequence_number, addr)
+			BUFFER[packet.sequence_number] = packet.payload
+			if not BUFFER.__contains__(None):
+				print(BUFFER)
+				complete = merge_buffer()
+				BUFFER.clear()
+				if IS_FILE:
+					build_file(complete)
+					IS_FILE = False
+				else:
+					complete = complete.decode()
+					print(complete)
+		else:
+			send_nak(packet.sequence_number, addr)
+	except IndexError:
+		packet = Content.from_bytes(data)
+		print(packet.sequence_number, packet.payload, "Index out.")
 		send_ack(packet.sequence_number, addr)
-		BUFFER[packet.sequence_number] = packet.payload
-		if not BUFFER.__contains__(None):
-			print(BUFFER)
-			complete = merge_buffer()
-			BUFFER.clear()
-			if IS_FILE:
-				build_file(complete)
-				IS_FILE = False
-			else:
-				complete = complete.decode()
-				print(complete)
-	else:
-		print("Error: ", packet.payload, "|", SERVER_BUFFER[packet.sequence_number])  # debug
-		send_nak(packet.sequence_number, addr)
 
 
 def handle(data, addr):
+	global BUFFER_SIZE
 	global BUFFER
 	global THREAD_COUNT
 
@@ -263,6 +308,10 @@ def handle(data, addr):
 			BUFFER.clear()
 			BUFFER = [None] * packet.sequence_number
 			print("Receiving", packet.sequence_number, "packets. . .")
+	elif packet_type == 'b':
+		packet = Response.from_bytes(data)
+		BUFFER_SIZE = packet.sequence_number
+		print("New buffer size", BUFFER_SIZE)
 	else:
 		print("Unknown type")
 	print("\\--------------------------------------------------/\n")
@@ -270,12 +319,27 @@ def handle(data, addr):
 
 def listen():
 	while True:
-		data, addr = sock.recvfrom(BUFFER_SIZE + TOTAL_HEADER_SIZE)  # buffer size is 1024
+		data, addr = sock.recvfrom(BUFFER_SIZE + TOTAL_HEADER_SIZE)  # total header size is 35
 		if data:
 			handle(data, addr)
 
 
-listen_thread = Thread(target=listen, daemon=True)
-listen_thread.start()
+def listen_for_connect():
+	listening = True
+	while listening:
+		data, addr = sock.recvfrom(BUFFER_SIZE + TOTAL_HEADER_SIZE)  # total header size is 35
+		if data:
+			packet = Packet.from_bytes(data).packet_type
+			if packet == 'y':
+				sock.sendto(Packet('Y').to_bytes(), addr)
+				print("Sent Y")
+			if packet == 'c':
+				listen_thread = Thread(target=listen, daemon=True)
+				listen_thread.start()
+				listening = False
+				print("Connected to", addr)
+			else:
+				print("Unknown Packet", packet)
+
 
 command_listener()
