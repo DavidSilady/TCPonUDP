@@ -21,33 +21,35 @@ sock.bind((UDP_IP, UDP_PORT))
 TARGET_IP = "127.0.0.1"
 TARGET_PORT = 5005
 
-RTT = 10
+RTT = 3
 
 thread_stop = []
-thread_list = []
+BUFFER = []
+
+
+def send_first(num_packets):
+	first = Response(num_packets, 'H')  # H - Header
+	sock.sendto(first.to_bytes(), (TARGET_IP, TARGET_PORT))
 
 
 def send_text():
 	message = input("Message: ")
-	if message.__sizeof__() > BUFFER_SIZE:
-		# https://stackoverflow.com/questions/7286139/using-python-to-break-a-continuous-string-into-components/7286244#7286244
-		chunks = [message[i:i + BUFFER_SIZE] for i in range(0, len(message), BUFFER_SIZE)]
-		packets = [Content(seq_num, 'm', chunk) for seq_num, chunk in enumerate(chunks)]
-		for packet in packets:
-			send_t = Thread(target=send_thread, args=[packet], daemon=True)
-			thread_stop.append(False)
-			thread_list.append(send_t)
-			send_t.start()
+	# https://stackoverflow.com/questions/7286139/using-python-to-break-a-continuous-string-into-components/7286244#7286244
+	chunks = [message[i:i + BUFFER_SIZE] for i in range(0, len(message), BUFFER_SIZE)]
+	packets = [Content(seq_num, 'm', chunk) for seq_num, chunk in enumerate(chunks)]
+
+	send_first(len(packets))
+	for packet in packets:
+		send_t = Thread(target=send_thread, args=[packet], daemon=True)
+		thread_stop.append(False)
+		send_t.start()
 	print("---Sent---")
 
 
 def send_thread(packet):
 	b_packet = packet.to_bytes()
-	i = 0
 	while not thread_stop[packet.sequence_number]:
 		sock.sendto(b_packet, (TARGET_IP, TARGET_PORT))
-		print(i)
-		i += 1
 		time.sleep(RTT)
 	return
 
@@ -98,6 +100,9 @@ def command_listener():
 		elif command == ":buffer":
 			global BUFFER_SIZE
 			BUFFER_SIZE = int(input("New buffer size: "))
+		elif command == ":clear":
+			global thread_stop
+			thread_stop.clear()
 		else:
 			print("---Unknown Command---")
 
@@ -117,27 +122,43 @@ def send_alive(addr):
 	sock.sendto(packet, addr)
 
 
+def merge_buffer(complete=""):
+	global BUFFER
+	for chunk in BUFFER:
+		complete += chunk
+	return complete
+
+
 def handle(data, addr):
 	packet = Packet.from_bytes(data)
 	packet_type = packet.packet_type
+	global BUFFER
 	print("\n/--------------------------------------------------\\")
-
 	if packet_type == 'm' or packet_type == 'f':  # message or file
 		packet = Content.from_bytes(data)
-		print("Message:", packet.payload, packet.sequence_number)
 		if packet.checksum == 0:
+			print("Chunk:", packet.payload)
 			send_ack(packet.sequence_number, addr)
+			BUFFER[packet.sequence_number] = packet.payload
+			if packet.sequence_number == len(BUFFER) - 1:
+				complete = merge_buffer()
+				BUFFER.clear()
+				print("Message:", complete)
+
 		else:
 			send_nak(packet.sequence_number, addr)
 	elif packet_type == 'a' or packet_type == 'n':  # ACK or NAK
 		packet = Response.from_bytes(data)
 		print("Type:", packet.packet_type, packet.sequence_number)
 		thread_stop[packet.sequence_number] = True
-		# thread_list[packet.sequence_number].join()
 	elif packet_type == 'k':  # keep alive
 		send_alive(addr)
 	elif packet_type == 'l':
 		print("Partner alive.")
+	elif packet_type == 'H':
+		packet = Response.from_bytes(data)
+		BUFFER.clear()
+		BUFFER = [None] * packet.sequence_number
 	else:
 		print("Unknown type")
 	print("\\--------------------------------------------------/\n")
