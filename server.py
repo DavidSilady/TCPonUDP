@@ -9,8 +9,8 @@ from packet import *
 
 TOTAL_HEADER_SIZE = 35
 
-UDP_IP = "127.0.0.1"
-UDP_PORT = 5005
+UDP_IP = "169.254.195.226"
+UDP_PORT = 35000
 
 BUFFER_SIZE = 8
 
@@ -18,8 +18,8 @@ sock = socket.socket(socket.AF_INET,  # Internet
 	                    socket.SOCK_DGRAM)  # UDP
 sock.bind((UDP_IP, UDP_PORT))
 
-TARGET_IP = "127.0.0.1"
-TARGET_PORT = 5005
+TARGET_IP = "169.254.195.226"
+TARGET_PORT = 35000
 
 RTT = 3
 
@@ -32,12 +32,29 @@ def send_first(num_packets):
 	sock.sendto(first.to_bytes(), (TARGET_IP, TARGET_PORT))
 
 
+# https://stackoverflow.com/a/30239138
+def multi_line_input():
+	lines = []
+	while True:
+		line = input()
+		if line == ":send":
+			break
+		else:
+			lines.append(line)
+	return '\n'.join(lines)
+# end of stack overflow code
+
+
 def send_text():
-	message = input("Message: ")
+
+	print(TARGET_IP, TARGET_PORT)
+	print("Message:")
+	message = multi_line_input()
 	# https://stackoverflow.com/questions/7286139/using-python-to-break-a-continuous-string-into-components/7286244#7286244
 	chunks = [message[i:i + BUFFER_SIZE] for i in range(0, len(message), BUFFER_SIZE)]
+	# end of stack overflow code
 	packets = [Content(seq_num, 'm', chunk) for seq_num, chunk in enumerate(chunks)]
-
+	thread_stop.clear()
 	send_first(len(packets))
 	for packet in packets:
 		send_t = Thread(target=send_thread, args=[packet], daemon=True)
@@ -83,6 +100,7 @@ def connect():
 	TARGET_IP = input("IP: ")
 	global TARGET_PORT
 	TARGET_PORT = int(input("Port: "))
+	sock.connect((TARGET_IP, TARGET_PORT))
 
 
 def command_listener():
@@ -142,9 +160,9 @@ def handle(data, addr):
 			BUFFER[packet.sequence_number] = packet.payload
 			if packet.sequence_number == len(BUFFER) - 1:
 				complete = merge_buffer()
+				print(BUFFER)
 				BUFFER.clear()
 				print("Message:", complete)
-
 		else:
 			send_nak(packet.sequence_number, addr)
 	elif packet_type == 'a' or packet_type == 'n':  # ACK or NAK
@@ -159,6 +177,7 @@ def handle(data, addr):
 		packet = Response.from_bytes(data)
 		BUFFER.clear()
 		BUFFER = [None] * packet.sequence_number
+		print("Receiving", packet.sequence_number, "packets. . .")
 	else:
 		print("Unknown type")
 	print("\\--------------------------------------------------/\n")
