@@ -60,18 +60,18 @@ def send_text():
 
 
 def queue_packets(packets):
+	global thread_count
 	thread_stop.clear()
 	timeout.clear()
 	send_first(len(packets))
 	for packet in packets:
 		while thread_count > MAX_THREAD_COUNT:
-			print("Num_Threads", thread_count)
-			time.sleep(0.2)
+			print("Max Threads", thread_count)
+			time.sleep(0.1)
 		send_t = Thread(target=send_thread, args=[packet], daemon=True)
 		event = Event()
 		timeout.append(event)
 		thread_stop.append(False)
-		global thread_count
 		thread_count += 1
 		send_t.start()
 	print("---Sent---")
@@ -177,7 +177,7 @@ def handle_content(data, addr):
 		BUFFER[packet.sequence_number] = packet.payload
 		if packet.sequence_number == len(BUFFER) - 1:
 			# complete = merge_buffer()
-#			print(BUFFER)
+			print(BUFFER)
 			BUFFER.clear()
 			# print("Message:", complete)
 	else:
@@ -186,27 +186,24 @@ def handle_content(data, addr):
 
 
 def handle(data, addr):
+	global BUFFER
+	global thread_count
+
 	packet = Packet.from_bytes(data)
 	packet_type = packet.packet_type
-	global BUFFER
+
 	print("\n/--------------------------------------------------\\")
 	if packet_type == 'm' or packet_type == 'f':  # message or file
 		handle_content(data, addr)
 	elif packet_type == 'a' or packet_type == 'n':  # ACK or NAK
 		packet = Response.from_bytes(data)
 		print("Type:", packet.packet_type, packet.sequence_number)
-		thread_stop[packet.sequence_number] = True
-		timeout[packet.sequence_number].set()
-		global thread_count
-		thread_count -= 1
-		'''
 		if packet_type == 'a':
 			thread_stop[packet.sequence_number] = True
+			timeout[packet.sequence_number].set()
+			thread_count -= 1
 		else:
-			repeat_packet = SERVER_BUFFER[packet.sequence_number]
-			send_t = Thread(target=send_thread, args=[repeat_packet], daemon=True)
-			send_t.start()
-			'''
+			timeout[packet.sequence_number].set()
 	elif packet_type == 'k':  # keep alive
 		send_alive(addr)
 	elif packet_type == 'l':
