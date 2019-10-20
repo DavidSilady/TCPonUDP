@@ -2,7 +2,7 @@ import socket
 import sys
 import time
 from concurrent.futures.thread import ThreadPoolExecutor
-from threading import Thread
+from threading import Thread, Event
 from packet import *
 
 TOTAL_HEADER_SIZE = 35
@@ -10,7 +10,7 @@ TOTAL_HEADER_SIZE = 35
 UDP_IP = "169.254.195.226"
 UDP_PORT = 35000
 
-BUFFER_SIZE = 8
+BUFFER_SIZE = 100
 
 sock = socket.socket(socket.AF_INET,  # Internet
 	                    socket.SOCK_DGRAM)  # UDP
@@ -20,8 +20,10 @@ TARGET_IP = "169.254.195.226"
 TARGET_PORT = 35000
 
 RTT = 2
-
+MAX_THREAD_COUNT = 100
 thread_stop = []
+thread_count = 1
+timeout = []
 BUFFER = []
 SERVER_BUFFER = []
 
@@ -51,14 +53,26 @@ def send_text():
 	# https://stackoverflow.com/questions/7286139/using-python-to-break-a-continuous-string-into-components/7286244#7286244
 	chunks = [message[i:i + BUFFER_SIZE] for i in range(0, len(message), BUFFER_SIZE)]
 	# end of stack overflow code
-	packets = [Content(seq_num, 'm', chunk) for seq_num, chunk in enumerate(chunks)]
-	thread_stop.clear()
-	send_first(len(packets))
+	packets = [Content(seq_num, 'm', chunk.encode()) for seq_num, chunk in enumerate(chunks)]
 	global SERVER_BUFFER
-	SERVER_BUFFER = packets
+	SERVER_BUFFER = chunks
+	queue_packets(packets)
+
+
+def queue_packets(packets):
+	thread_stop.clear()
+	timeout.clear()
+	send_first(len(packets))
 	for packet in packets:
+		while thread_count > MAX_THREAD_COUNT:
+			print("Num_Threads", thread_count)
+			time.sleep(0.2)
 		send_t = Thread(target=send_thread, args=[packet], daemon=True)
+		event = Event()
+		timeout.append(event)
 		thread_stop.append(False)
+		global thread_count
+		thread_count += 1
 		send_t.start()
 	print("---Sent---")
 
@@ -66,9 +80,10 @@ def send_text():
 def send_thread(packet):
 	b_packet = packet.to_bytes()
 	while not thread_stop[packet.sequence_number]:
-		print("Sending:", packet.sequence_number)
+		# print("Sending:", packet.sequence_number)
 		sock.sendto(b_packet, (TARGET_IP, TARGET_PORT))
-		time.sleep(RTT)
+		print("Packet", packet.sequence_number, "sent.")
+		timeout[packet.sequence_number].wait(RTT)
 	return
 
 
@@ -84,15 +99,9 @@ def send_file():
 			seq_num += 1
 			packets.append(packet)
 			chunk = file.read(BUFFER_SIZE)
-
-	send_first(len(packets))
 	global SERVER_BUFFER
-	SERVER_BUFFER = packets
-
-	for packet in packets:
-		thread_stop.append(False)
-	with ThreadPoolExecutor() as executor:
-		var = {executor.submit(send_thread, packet): packet for packet in packets}
+	SERVER_BUFFER = [packet.payload for packet in packets]
+	queue_packets(packets)
 	return
 
 
@@ -163,15 +172,16 @@ def merge_buffer(complete=""):
 def handle_content(data, addr):
 	packet = Content.from_bytes(data)
 	if packet.checksum == 0:
-		print("Chunk:", packet.payload)
+		print("Chunk:", packet.sequence_number)
 		send_ack(packet.sequence_number, addr)
 		BUFFER[packet.sequence_number] = packet.payload
 		if packet.sequence_number == len(BUFFER) - 1:
-			complete = merge_buffer()
-			print(BUFFER)
+			# complete = merge_buffer()
+#			print(BUFFER)
 			BUFFER.clear()
-			print("Message:", complete)
+			# print("Message:", complete)
 	else:
+		print("Error: ", packet.payload, "|", SERVER_BUFFER[packet.sequence_number])  # debug
 		send_nak(packet.sequence_number, addr)
 
 
@@ -185,12 +195,18 @@ def handle(data, addr):
 	elif packet_type == 'a' or packet_type == 'n':  # ACK or NAK
 		packet = Response.from_bytes(data)
 		print("Type:", packet.packet_type, packet.sequence_number)
+		thread_stop[packet.sequence_number] = True
+		timeout[packet.sequence_number].set()
+		global thread_count
+		thread_count -= 1
+		'''
 		if packet_type == 'a':
 			thread_stop[packet.sequence_number] = True
 		else:
 			repeat_packet = SERVER_BUFFER[packet.sequence_number]
 			send_t = Thread(target=send_thread, args=[repeat_packet], daemon=True)
 			send_t.start()
+			'''
 	elif packet_type == 'k':  # keep alive
 		send_alive(addr)
 	elif packet_type == 'l':

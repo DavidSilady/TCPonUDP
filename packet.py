@@ -50,12 +50,8 @@ class Content(Packet):  # Message and File
         return checksum_f(data, checksum)
 
     def to_bytes(self):
-        try:
-            return pack("!cIH", self.packet_type.encode('utf-8'), self.sequence_number, self.checksum)\
-                   + str.encode(self.payload)
-        except TypeError:
-            return pack("!cIH", self.packet_type.encode('utf-8'), self.sequence_number, self.checksum) \
-                   + self.payload
+        return pack("!cIH", self.packet_type.encode('utf-8'), self.sequence_number, self.checksum) \
+                + self.payload
 
     @classmethod
     def from_bytes(cls, data):
@@ -64,7 +60,4 @@ class Content(Packet):  # Message and File
         sequence_number = new_tuple[1]
         checksum = new_tuple[2]
         payload = data[7:]
-        try:
-            return cls(sequence_number, packet_type.decode(), payload.decode(), checksum)
-        except UnicodeDecodeError:
-            return cls(sequence_number, packet_type.decode(), payload, checksum)
+        return cls(sequence_number, packet_type.decode(), payload, checksum)
